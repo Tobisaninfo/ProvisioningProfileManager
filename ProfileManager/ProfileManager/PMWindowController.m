@@ -105,7 +105,13 @@ static NSString * const PMProfileCellIdentifier = @"PMProfileCell";
 - (void)loadProfiles {
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSURL *libraryDirectoryURL = [self getLibraryDirectoryURL];
-    NSURL *profilesDirectoryURL = [libraryDirectoryURL URLByAppendingPathComponent:@"MobileDevice/Provisioning Profiles"];
+    NSArray<NSNumber*>* xcodeVersion = [self parseVersionComponents: [self getXcodeVersion]];
+    NSURL *profilesDirectoryURL;
+    if (xcodeVersion[0].intValue < 16) {
+        profilesDirectoryURL = [libraryDirectoryURL URLByAppendingPathComponent:@"MobileDevice/Provisioning Profiles"];
+    } else {
+        profilesDirectoryURL = [libraryDirectoryURL URLByAppendingPathComponent:@"Developer/Xcode/UserData/Provisioning Profiles"];
+    }
     
     NSDirectoryEnumerator *enumerator = [fileManager enumeratorAtURL:profilesDirectoryURL
                                           includingPropertiesForKeys:@[NSURLNameKey]
@@ -230,6 +236,53 @@ static NSString * const PMProfileCellIdentifier = @"PMProfileCell";
 
 - (void)didTapReloadButton:(id)sender {
     [self reloadAllProfiles];
+}
+
+// MARK: - Xcode Version
+
+- (NSString*) getXcodeVersion {
+    NSTask *task = [[NSTask alloc] init];
+    task.launchPath = @"/usr/bin/xcodebuild";
+    task.arguments = @[@"-version"];
+
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+
+    NSFileHandle *file = [pipe fileHandleForReading];
+
+    @try {
+        [task launch];
+    } @catch (NSException *exception) {
+        NSLog(@"Fehler beim Ausführen von xcodebuild: %@", exception);
+        return nil;
+    }
+
+    NSData *data = [file readDataToEndOfFile];
+    NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+
+    NSArray<NSString *> *lines = [output componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    for (NSString *line in lines) {
+        if ([line hasPrefix:@"Xcode "]) {
+            return [line stringByReplacingOccurrencesOfString:@"Xcode " withString:@""];
+        }
+    }
+
+    return nil;
+}
+
+- (NSArray<NSNumber *>*) parseVersionComponents: (NSString *) versionString {
+    if (versionString.length == 0) return @[];
+
+    NSMutableArray<NSNumber *> *numbers = [NSMutableArray array];
+    NSCharacterSet *nonDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+
+    for (NSString *part in [versionString componentsSeparatedByString:@"."]) {
+        NSString *digitsOnly = [[part componentsSeparatedByCharactersInSet:nonDigits] componentsJoinedByString:@""];
+        if (digitsOnly.length > 0) {
+            [numbers addObject:@(digitsOnly.integerValue)];
+        }
+    }
+    return numbers;
 }
 
 @end
